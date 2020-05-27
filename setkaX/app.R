@@ -1,238 +1,129 @@
 library(shiny)
-library(tidyverse)
-library(glue)
-library(sf)
-library(leaflet)
-library(mapview)
+library(shinyjs)
 
-ui <- fluidPage(
-  titlePanel("SETKOSTROITEL X"),
-  sidebarLayout(
-    
-    sidebarPanel(
-      
-      fileInput("file",
-                label="Загружать CSVs сюда",
-                accept = ".csv",
-                multiple = TRUE),
-      
-      downloadButton("downloadmif", "Скачать .mif"),
-      downloadButton("downloadmid", "Скачать .mid"),
-      
-      # author info
-      shiny::hr(),
-      em(
-        span("Created by "),
-        a("Anatoly Tsyplenkov", href = "mailto:atsyplenkov@gmail.com"),
-        span(", Apr 2020"),
-        br(), br()
+examples <- c(
+  'toggle("btn")',
+  'delay(500, toggle("btn"))',
+  'hide("btn")',
+  'show("btn")',
+  'reset("expr")',
+  'alert(R.Version())',
+  'onclick("btn", alert(date()))',
+  'toggle(id = "btn", condition = (sample(2, 1) == 1))',
+  'toggle(id = "btn", anim = TRUE, time = 1, animType = "slide")',
+  'toggleState("btn")',
+  'disable("btn")',
+  'enable("btn")',
+  'html("btn", "What a nice button")',
+  'html("btn", paste("The time is", date()))',
+  'addClass("btn", "green")',
+  'removeClass("btn", "green")',
+  'toggleClass("btn", "green")'
+)
+
+# to make sure the user doesn't try to send his own expression to run,
+# assign each expression to an integer value so that the integer is what
+# Shiny will report rather than an actual R expression
+examplesNamed <- seq_along(examples)
+names(examplesNamed) <- examples
+
+# show some help text explaining each function
+helpText <- list(
+  "toggle"      = "will alternate between showing and hiding the button below",
+  "delay"       = "will run the given R expression after the specified number of milliseconds has elapsed",
+  "hide"        = "will hide the button below",
+  "show"        = "will make the button below visible",
+  "reset"       = "will reset an input widget (in this case - the select box) to its original value",
+  "alert"       = "will show a message to the user",
+  "onclick"     = "will run the given R expression when the button is clicked",
+  "toggleState" = "will alternate between enabling and disabling the button below",
+  "disable"     = "will disable the button below from being clicked",
+  "enable"      = "will allow the button below to be clicked",
+  "html"        = "will change the HTML contents of an element",
+  "addClass"    = "will add a CSS class to an element",
+  "removeClass" = "will remove a CSS class from an element",
+  "toggleClass" = "will alternate between adding and removing a class from an element"
+)
+helpTextMap <-
+  match(
+    vapply(examples, function(x) strsplit(x, "\\(")[[1]][1],
+           character(1), USE.NAMES = FALSE),
+    names(helpText)
+  )
+
+css <- 
+  "
+a#more-apps-by-dean {
+display: none;
+}
+body {
+background: #fff;
+}
+.container {
+margin: 0;
+padding: 15px;
+}
+.green {
+background: green;
+}
+#expr-container .selectize-input {
+  font-size: 24px;
+line-height: 24px;
+}
+#expr-container .selectize-dropdown {
+font-size: 20px;
+line-height: 26px;
+}
+#expr-container .selectize-dropdown-content {
+max-height: 225px;
+padding: 0;
+}
+#expr-container .selectize-dropdown-content .option {
+border-bottom: 1px dotted #ccc;
+}
+#submitExpr {
+font-weight: bold;
+font-size: 18px;
+padding: 5px 20px;
+}
+#helpText {
+font-size: 18px;
+}
+#btn {
+font-size: 20px;
+}
+"
+
+ui <- fixedPage(
+  shinyjs::useShinyjs(),
+  tags$style(css),
+  div(id = "expr-container",
+      selectInput("expr", label = NULL,
+                  choices = examplesNamed, selected = 1,
+                  multiple = FALSE, selectize = TRUE, width = "100%"
       )
-      
-    ),
-    # Main:
-    mainPanel(
-      
-      leafletOutput("mymap"),
-      tableOutput("mytable")
-      
+  ),
+  actionButton("submitExpr", "Run", class = "btn-success"),
+  shiny::hr(),
+  uiOutput("helpText"),
+  tags$button(
+    id = "btn", class = "btn",
+    "I'm a button with id \"btn\"")
+)
+
+server <- function(input, output, session) {
+  output$helpText <- renderUI({
+    p(
+      strong(names(helpText[helpTextMap[as.numeric(input$expr)]])),
+      as.character(helpText[helpTextMap[as.numeric(input$expr)]])
     )
-  )
-) 
-
-server <- function(input, output) {
-  
-  # Set the maximum file size
-  options(shiny.maxRequestSize = 200*1024^2)
-  
-  Dataset_bind <- reactive({
-    
-    if (is.null(input$file)) {
-      # User has not uploaded a file yet
-      return(data.frame())
-    }
-    
-    # Calculate the duration of progress bar loading
-    N <- round(file.size(path.expand(input$file$datapath)) / 1024^2)
-    
-    # Add progress bar
-    withProgress(message = 'Reading data', value = 0, {
-      
-      for(i in 1:N){
-        
-        # Long Running Task
-        Sys.sleep(0.5)
-        
-        # Update progress
-        incProgress(1/N)
-      }
-      
-      df <- tibble(filename = input$file$datapath) %>%
-        mutate(file_contents = map(filename,
-                                   ~read_csv(., skip = 2))) %>% 
-        unnest(file_contents) %>% 
-        filter(K != 1) %>% 
-        dplyr::select(-Z, -K) %>% 
-        group_by(filename) %>%
-        nest() %>% 
-        mutate(Jmax = map(data, ~max(.x$J)),
-               Imax = map(data, ~max(.x$I))) %>% 
-        unnest(c(data, Jmax, Imax)) %>% 
-        group_by(filename, Jmax, Imax, I, J) %>% 
-        nest()
-      
-      # 2) I = 0, sort descending
-      df_I0 <- df %>% 
-        filter(I == 0) %>% 
-        unnest(data) %>% 
-        group_by(filename) %>% 
-        nest() %>% 
-        mutate(data = map(data, ~rowid_to_column(.)),
-               data = map(data, ~arrange(.x ,-.x$rowid))) %>% 
-        unnest(data) %>% 
-        ungroup() %>% 
-        dplyr::select(filename, Jmax, X, Y)
-      
-      # 3) J = 0 
-      df_J0 <- df %>% 
-        filter(J == 0) %>% 
-        unnest(data) %>% 
-        ungroup() %>% 
-        dplyr::select(filename, Jmax, X, Y) %>% 
-        dplyr::slice(-1)
-      
-      # 4) I = MAX 
-      df_Imax <- df %>% 
-        filter(I == Imax) %>% 
-        unnest(data) %>% 
-        ungroup() %>% 
-        dplyr::select(filename, Jmax, X, Y) %>% 
-        slice(-1)
-      
-      # 5) J = MAX 
-      df_Jmax <- df %>% 
-        filter(J == Jmax) %>% 
-        unnest(data) %>% 
-        group_by(filename) %>% 
-        nest() %>% 
-        mutate(data = map(data, ~rowid_to_column(.)),
-               data = map(data, ~arrange(.x ,-.x$rowid))) %>% 
-        unnest(data) %>% 
-        ungroup() %>% 
-        dplyr::select(filename, Jmax, X, Y) %>% 
-        dplyr::slice(-1)
-      
-      # 6) Bind
-      df_bind <- bind_rows(df_I0, df_J0, df_Imax, df_Jmax) 
-      
-      return(df_bind)
-      
-    })
   })
   
-  Dataset <- reactive({
-    
-    df_prep <- Dataset_bind() %>% 
-      group_by(filename) %>% 
-      mutate_at(vars(-group_cols()),
-                ~as.character(.)) %>%
-      nest() %>% 
-      mutate(data = map(data,
-                        ~add_row(.x, X = as.character(nrow(.)),
-                                 Y = "", .before = 1)),
-             data = map(data,
-                        ~add_row(.x, X = "Pen", Y = "(1,1,1)")),
-             data = map(data,
-                        ~add_row(.x, X = "Region", Y = "1", .before = 1))
-      ) %>%
-      unnest(data) %>% 
-      ungroup() %>% 
-      dplyr::select(-filename) %>% 
-      add_row(X = "Data", Y = "", .before = 1)
-    
-    return(df_prep)
+  observeEvent(input$submitExpr, {
+    isolate(
+      eval(parse(text = examples[as.numeric(input$expr)]))
+    )
   })
-  
-  Table <- reactive({
-    
-    nfiles <- length(input$file$datapath)
-    
-    # jmax_vector <- Dataset() %>% 
-    #     dplyr::select(Jmax) %>%
-    #     dplyr::mutate(Jmax = as.numeric(Jmax)) %>%
-    #     # filter(!is.na(Jmax)) %>% 
-    #     pull(Jmax) %>%
-    #     unique()
-    
-    jmax_vector <- Dataset_bind() %>% 
-      group_by(filename) %>%
-      summarise(Jmax_ = unique(Jmax)) %>% 
-      pull()
-    
-    ruslo <- tibble(ruslo = glue::glue("русло{seq(from = 1, to = nfiles, by = 1)},{jmax_vector},,,,1"))
-    
-    return(ruslo)
-    
-  })
-  
-  ### Download .mif
-  output$downloadmif <- downloadHandler(
-    filename = function() {
-      paste0(x = gsub(input$file[[1]],
-                      pattern = ".csv",
-                      replacement = ""), ".mif")
-    },
-    content = function(file) {
-      write.table(x = Dataset() %>% 
-                    dplyr::select(-Jmax), file, sep = " ",
-                  row.names = F, col.names = F, dec = ".",
-                  quote = F, fileEncoding = "UTF-8")
-    }
-  )
-  ### Download .mid
-  output$downloadmid <- downloadHandler(
-    filename = function() {
-      paste0(x = gsub(input$file[[1]],
-                      pattern = ".csv",
-                      replacement = ""), ".mid")
-    },
-    content = function(file) {
-      write.table(x = Table(), file, sep = " ",
-                  row.names = F, col.names = F, dec = ".",
-                  quote = F, fileEncoding = "windows-1251")
-    }
-  )
-  
-  ### Show map:
-  output$mymap <- renderLeaflet({
-    
-    if (is.null(input$file)) return(NULL)
-    
-    m <- Dataset_bind() %>% 
-      dplyr::select(X, Y) %>% 
-      st_as_sf(coords = c("X", "Y")) %>% 
-      mapview(fill = "cyan",
-              color = "white",
-              alpha = 0.1,
-              map.types = c("CartoDB.DarkMatter"),
-              legend = FALSE
-              # popup = popupImage("https://jeroenooms.github.io/images/banana.gif",
-              # src = "remote")
-      )
-    
-    m@map
-    
-  })
-  
-  output$mytable <- renderTable({
-    
-    if (is.null(input$file)) return(NULL)
-    
-    Table()
-    
-  },
-  align = "c", bordered = T, striped = T
-  )
-  
 }
 
 shinyApp(ui = ui, server = server)
