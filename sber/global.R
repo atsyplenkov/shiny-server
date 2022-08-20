@@ -6,6 +6,7 @@ library(markdown)
 library(stringr)
 library(shinybusy)
 library(shinyjs)
+library(waiter)
 
 rephrase <- function(x,
                      temperature = 0.9,

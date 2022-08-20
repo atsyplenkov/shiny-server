@@ -1,5 +1,7 @@
 function(input, output) {
   
+  waiter_hide() # will hide *on_load waiter
+  
   phrases <- reactiveValues(data = NULL)
   
   observeEvent(input$update, {

@@ -4,6 +4,7 @@ library(readr)
 library(memoise)
 library(DT)
 library(markdown)
+library(waiter)
 
 # Парсим курс МИР-Белорусский рубль ---------------------------------------
 get_mir_currency <- memoise(function(){

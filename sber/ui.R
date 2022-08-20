@@ -1,5 +1,8 @@
 fluidPage(
   
+  useWaiter(), # dependencies
+  waiterShowOnLoad(spin_fading_circles()), # shows before anything else
+  
   # Add progress bar
   add_busy_spinner(spin = "folding-cube",
                    color = "#3fbdc3",

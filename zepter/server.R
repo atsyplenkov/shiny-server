@@ -1,5 +1,7 @@
 function(input, output, session) {
- 
+  
+  waiter_hide() # will hide *on_load waiter
+  
   data <- reactiveValues(data = NULL,
                          long = NULL)
   
@@ -80,4 +82,5 @@ function(input, output, session) {
       cat(paste0(itog, " RUB"))
       
     })
+  
 }

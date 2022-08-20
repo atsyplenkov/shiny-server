@@ -1,6 +1,11 @@
 pageWithSidebar(
+  
   headerPanel('Расчет курса валют через Цептер-банк'),
   sidebarPanel(
+    
+    useWaiter(), # dependencies
+    waiterShowOnLoad(spin_fading_circles()), # shows before anything else
+    
     numericInput('mymoney',
                  'Сколько рос. руб. вы хотите перевести?',
                  1000,
